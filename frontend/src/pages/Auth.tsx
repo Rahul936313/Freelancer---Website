@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Briefcase } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -21,27 +22,50 @@ const Auth = () => {
   const [signupName, setSignupName] = useState("");
   const [userRole, setUserRole] = useState<"freelancer" | "client">("freelancer");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Temporary: Store mock user data in localStorage
-    localStorage.setItem("user", JSON.stringify({ 
-      email: loginEmail, 
-      role: "freelancer" // Default for demo
-    }));
-    toast.success("Welcome back!");
-    navigate("/freelancer-dashboard");
+
+    // trim inputs before sending
+    const payload = {
+      email: (loginEmail || "").trim(),
+      password: (loginPassword || ""), // don't auto-trim password characters intentionally, but remove accidental trailing spaces if desired
+    };
+    console.log("[FRONTEND LOGIN] payload (email, pwdLen):", payload.email, payload.password.length);
+
+    try {
+      const res = await api.post<{ token?: string; user?: any }>("/auth/login", payload);
+      if (res?.token) localStorage.setItem("token", res.token);
+      if (res?.user) localStorage.setItem("user", JSON.stringify(res.user));
+      toast.success("Welcome back!");
+      const role = res?.user?.role;
+      navigate(role === "client" ? "/client-dashboard" : "/freelancer-dashboard");
+    } catch (err: any) {
+      console.error("[FRONTEND LOGIN ERROR]", err);
+      toast.error(err?.message || "Login failed");
+    }
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Temporary: Store mock user data in localStorage
-    localStorage.setItem("user", JSON.stringify({ 
-      email: signupEmail, 
-      name: signupName,
-      role: userRole 
-    }));
-    toast.success("Account created successfully!");
-    navigate(userRole === "freelancer" ? "/freelancer-dashboard" : "/client-dashboard");
+
+    // trim inputs before sending
+    const payload = {
+      name: (signupName || "").trim(),
+      email: (signupEmail || "").trim().toLowerCase(),
+      password: (signupPassword || ""),
+      role: userRole,
+    };
+    console.log("[FRONTEND SIGNUP] payload (email, name, pwdLen):", payload.email, payload.name, payload.password.length);
+
+    try {
+      const created = await api.post<{ user?: any }>("/auth/signup", payload);
+      if (created?.user) localStorage.setItem("user", JSON.stringify(created.user));
+      toast.success("Account created successfully!");
+      navigate(userRole === "freelancer" ? "/freelancer-dashboard" : "/client-dashboard");
+    } catch (err: any) {
+      console.error("[FRONTEND SIGNUP ERROR]", err);
+      toast.error(err?.message || "Signup failed");
+    }
   };
 
   return (

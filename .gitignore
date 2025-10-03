@@ -1,1 +1,12 @@
-"backend/.env"  
+# Environment files (root and packages)
+.env
+.env.*
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+
+# Node modules
+node_modules/
+backend/node_modules/
+frontend/node_modules/  

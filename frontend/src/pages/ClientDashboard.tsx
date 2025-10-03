@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Briefcase, Plus, Users, DollarSign, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 const ClientDashboard = () => {
   const navigate = useNavigate();
@@ -40,24 +41,111 @@ const ClientDashboard = () => {
     title: "",
     description: "",
     budget: "",
-    skills: ""
+    category: "",
+    skills: "",
+    deadline: "",
+    status: "open"
   });
 
-  const handlePostJob = (e: React.FormEvent) => {
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const jobs = await api.get<any[]>("/jobs"); // adjust path to backend route if different
+        if (mounted) {
+          const me = user && (user._id || user.id);
+          const mine = (jobs || []).filter((j: any) => {
+            const ownerId = j?.postedBy?._id || j?.postedBy;
+            return me && ownerId && String(ownerId) === String(me);
+          });
+          setJobs(mine);
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to load jobs");
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
-    const job = {
-      id: jobs.length + 1,
+    const jobPayload = {
       title: newJob.title,
       description: newJob.description,
       budget: newJob.budget,
-      skills: newJob.skills.split(",").map(s => s.trim()),
-      proposals: 0,
-      status: "Active"
+      category: newJob.category,
+      skills: newJob.skills,
+      deadline: newJob.deadline,
+      status: newJob.status,
     };
-    setJobs([job, ...jobs]);
-    setNewJob({ title: "", description: "", budget: "", skills: "" });
-    setIsDialogOpen(false);
-    toast.success("Job posted successfully!");
+    try {
+      const created = await api.post("/jobs", jobPayload);
+      setJobs([created, ...jobs]);
+      setNewJob({ title: "", description: "", budget: "", category: "", skills: "", deadline: "", status: "open" });
+      setIsDialogOpen(false);
+      toast.success("Job posted successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Create failed");
+    }
+  };
+
+  const handleDeleteJob = async (job: any) => {
+    const confirm = window.confirm(`Delete job "${job.title}"? This will remove all related proposals.`);
+    if (!confirm) return;
+    try {
+      await api.del(`/jobs/${job._id || job.id}`);
+      setJobs(jobs.filter((j: any) => (j._id || j.id) !== (job._id || job.id)));
+      toast.success("Job deleted");
+    } catch (err: any) {
+      toast.error(err?.message || "Delete failed");
+    }
+  };
+
+  const [proposalsByJob, setProposalsByJob] = useState<Record<string, any[]>>({});
+  const openProposals = async (job: any) => {
+    try {
+      const list = await api.get<any[]>(`/jobs/${job._id || job.id}/proposals`);
+      setProposalsByJob({ ...proposalsByJob, [job._id || job.id]: list || [] });
+      toast.success("Loaded proposals");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to load proposals");
+    }
+  };
+
+  // Edit job
+  const [editFor, setEditFor] = useState<any | null>(null);
+  const [editJob, setEditJob] = useState({ title: "", description: "", budget: "", category: "", skills: "", deadline: "", status: "open" });
+  const openEdit = (job: any) => {
+    setEditFor(job);
+    setEditJob({
+      title: job.title || "",
+      description: job.description || "",
+      budget: String(job.budget ?? ""),
+      category: job.category || "",
+      skills: Array.isArray(job.skills) ? job.skills.join(", ") : (job.skills || ""),
+      deadline: job.deadline ? new Date(job.deadline).toISOString().slice(0,10) : "",
+      status: job.status || "open",
+    });
+  };
+  const saveEdit = async () => {
+    if (!editFor) return;
+    const payload = {
+      title: editJob.title,
+      description: editJob.description,
+      budget: editJob.budget,
+      category: editJob.category,
+      skills: editJob.skills,
+      deadline: editJob.deadline,
+      status: editJob.status,
+    };
+    try {
+      const updated = await api.put(`/jobs/${editFor._id || editFor.id}`, payload);
+      setJobs(jobs.map((j: any) => ((j._id || j.id) === (editFor._id || editFor.id) ? updated : j)));
+      setEditFor(null);
+      toast.success("Job updated");
+    } catch (err: any) {
+      toast.error(err?.message || "Update failed");
+    }
   };
 
   const handleLogout = () => {
@@ -67,6 +155,7 @@ const ClientDashboard = () => {
   };
 
   return (
+    <>
     <div className="min-h-screen bg-background">
       {/* Navbar */}
       <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
@@ -105,7 +194,7 @@ const ClientDashboard = () => {
                 Post New Job
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Post a New Job</DialogTitle>
                 <DialogDescription>
@@ -145,6 +234,15 @@ const ClientDashboard = () => {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <Input
+                    id="category"
+                    placeholder="e.g., Web Development"
+                    value={newJob.category}
+                    onChange={(e) => setNewJob({ ...newJob, category: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="skills">Required Skills (comma-separated)</Label>
                   <Input
                     id="skills"
@@ -153,6 +251,27 @@ const ClientDashboard = () => {
                     onChange={(e) => setNewJob({ ...newJob, skills: e.target.value })}
                     required
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="deadline">Deadline</Label>
+                  <Input
+                    id="deadline"
+                    type="date"
+                    value={newJob.deadline}
+                    onChange={(e) => setNewJob({ ...newJob, deadline: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <select
+                    id="status"
+                    className="border rounded h-10 px-3 bg-background"
+                    value={newJob.status}
+                    onChange={(e) => setNewJob({ ...newJob, status: e.target.value })}
+                  >
+                    <option value="open">Open</option>
+                    <option value="closed">Closed</option>
+                  </select>
                 </div>
                 <Button type="submit" className="w-full">
                   Post Job
@@ -174,8 +293,8 @@ const ClientDashboard = () => {
           </Card>
         ) : (
           <div className="grid gap-6">
-            {jobs.map((job) => (
-              <Card key={job.id} className="hover:shadow-[var(--shadow-elegant)] transition-all">
+            {jobs.map((job: any) => (
+              <Card key={job._id || job.id} className="hover:shadow-[var(--shadow-elegant)] transition-all">
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div>
@@ -194,12 +313,17 @@ const ClientDashboard = () => {
                       </div>
                       <div className="flex items-center gap-1">
                         <Users className="h-4 w-4" />
-                        {job.proposals} Proposals
+                        {(() => {
+                          const jid = job._id || job.id;
+                          const loadedCount = Array.isArray(proposalsByJob[jid]) ? proposalsByJob[jid].length : undefined;
+                          const baseCount = Array.isArray(job.applicants) ? job.applicants.length : (job.proposals || 0);
+                          return (loadedCount !== undefined ? loadedCount : baseCount);
+                        })()} Proposals
                       </div>
                     </div>
                     
                     <div className="flex flex-wrap gap-2">
-                      {job.skills.map((skill, index) => (
+                      {(Array.isArray(job.skills) ? job.skills : []).map((skill: string, index: number) => (
                         <Badge key={index} variant="outline">
                           {skill}
                         </Badge>
@@ -207,9 +331,30 @@ const ClientDashboard = () => {
                     </div>
                     
                     <div className="flex gap-2 pt-2 border-t">
-                      <Button variant="outline">View Proposals</Button>
-                      <Button variant="outline">Edit</Button>
+                      <Button variant="outline" onClick={() => openProposals(job)}>View Proposals</Button>
+                      <Button variant="outline" onClick={() => openEdit(job)}>Edit</Button>
+                      <Button variant="destructive" onClick={() => handleDeleteJob(job)}>Delete</Button>
                     </div>
+                    {Array.isArray(proposalsByJob[job._id || job.id]) && proposalsByJob[job._id || job.id].length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {proposalsByJob[job._id || job.id].map((p: any) => (
+                          <div key={p._id} className="rounded border p-3">
+                            <div className="text-sm text-muted-foreground mb-1">
+                              {p.freelancer?.name || p.freelancer?.email || 'Unknown Freelancer'}
+                            </div>
+                            <div className="text-sm mb-1">Bid: {p.bidAmount ?? p.amount ?? '-'}</div>
+                            <div className="text-sm mb-1">Timeline: {p.timeline ?? p.duration ?? '-'}</div>
+                            {(p.contactEmail || p.freelancer?.email) && (
+                              <div className="text-sm mb-1">Email: {p.contactEmail || p.freelancer?.email}</div>
+                            )}
+                            {p.contactPhone && (
+                              <div className="text-sm mb-1">Phone: {p.contactPhone}</div>
+                            )}
+                            <div className="text-sm">{p.coverLetter}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -218,6 +363,51 @@ const ClientDashboard = () => {
         )}
       </div>
     </div>
+    {editFor && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-background rounded shadow p-4 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+          <div className="text-lg font-semibold mb-3">Edit Job</div>
+          <div className="space-y-3">
+            <div>
+              <Label className="mb-1 block">Title</Label>
+              <Input value={editJob.title} onChange={(e)=>setEditJob({ ...editJob, title: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Description</Label>
+              <Textarea rows={4} value={editJob.description} onChange={(e)=>setEditJob({ ...editJob, description: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Budget</Label>
+              <Input value={editJob.budget} onChange={(e)=>setEditJob({ ...editJob, budget: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Category</Label>
+              <Input value={editJob.category} onChange={(e)=>setEditJob({ ...editJob, category: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Skills (comma-separated)</Label>
+              <Input value={editJob.skills} onChange={(e)=>setEditJob({ ...editJob, skills: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Deadline</Label>
+              <Input type="date" value={editJob.deadline} onChange={(e)=>setEditJob({ ...editJob, deadline: e.target.value })} />
+            </div>
+            <div>
+              <Label className="mb-1 block">Status</Label>
+              <select className="border rounded h-10 px-3 bg-background" value={editJob.status} onChange={(e)=>setEditJob({ ...editJob, status: e.target.value })}>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={()=>setEditFor(null)}>Cancel</Button>
+              <Button onClick={saveEdit}>Save</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

@@ -5,6 +5,9 @@ const proposalSchema = new mongoose.Schema({
   freelancer: { type: mongoose.Schema.Types.ObjectId, ref:'User' },
   coverLetter: String,
   bidAmount: Number,
+  timeline: String,
+  contactEmail: String,
+  contactPhone: String,
   status: { type: String, enum:['pending','accepted','rejected'], default:'pending' }
 },{ timestamps:true });
 

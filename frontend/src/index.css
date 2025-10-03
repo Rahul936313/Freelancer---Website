@@ -98,4 +98,15 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
   }
+
+  html,
+  :host {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  [data-sonner-toast][data-swiped=true] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
